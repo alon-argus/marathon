@@ -8,8 +8,7 @@ import mesosphere.marathon.MarathonSchedulerActor.ScaleApp
 import mesosphere.marathon.Protos.MarathonTask
 import mesosphere.marathon.event._
 import mesosphere.marathon.health.HealthCheckManager
-import mesosphere.marathon.state.{ AppDefinition, AppRepository, PathId, Timestamp }
-import mesosphere.marathon.tasks.TaskQueue.QueuedTask
+import mesosphere.marathon.state.{ AppRepository, PathId, Timestamp }
 import mesosphere.marathon.tasks._
 import mesosphere.mesos.protos
 import mesosphere.util.state.FrameworkIdUtil
@@ -27,7 +26,7 @@ trait SchedulerCallbacks {
 
 class MarathonScheduler @Inject() (
     @Named(EventModule.busName) eventBus: EventStream,
-    offerMatcher: OfferMatcher,
+    @Named("offerMatcherActor") offerMatcher: ActorRef,
     @Named("schedulerActor") schedulerActor: ActorRef,
     appRepo: AppRepository,
     healthCheckManager: HealthCheckManager,
@@ -79,12 +78,14 @@ class MarathonScheduler @Inject() (
     val appVersions: Map[PathId, Timestamp] =
       Await.result(appRepo.currentAppVersions(), config.zkTimeoutDuration)
 
-    taskQueue.retain {
-      case QueuedTask(app, _) =>
-        appVersions.get(app.id) contains app.version
-    }
+    // FIXME
+    //    taskQueue.retain {
+    //      case QueuedTask(app, _) =>
+    //        appVersions.get(app.id) contains app.version
+    //    }
 
-    offerMatcher.processResourceOffers(driver, offers.asScala)
+    // FIXME
+    //    offerMatcher.processResourceOffers(driver, offers.asScala)
   }
 
   override def offerRescinded(driver: SchedulerDriver, offer: OfferID): Unit = {
@@ -94,6 +95,8 @@ class MarathonScheduler @Inject() (
   //TODO: fix style issue and enable this scalastyle check
   //scalastyle:off cyclomatic.complexity method.length
   override def statusUpdate(driver: SchedulerDriver, status: TaskStatus): Unit = {
+
+    status.getData
 
     log.info("Received status update for task %s: %s (%s)"
       .format(status.getTaskId.getValue, status.getState, status.getMessage))
@@ -110,10 +113,11 @@ class MarathonScheduler @Inject() (
     val killedForFailingHealthChecks =
       status.getState == TASK_KILLED && status.hasHealthy && !status.getHealthy
 
-    if (status.getState == TASK_ERROR || status.getState == TASK_FAILED || killedForFailingHealthChecks)
-      appRepo.currentVersion(appId).foreach {
-        _.foreach(taskQueue.rateLimiter.addDelay)
-      }
+    // FIXME(PK): include in new version
+    //    if (status.getState == TASK_ERROR || status.getState == TASK_FAILED || killedForFailingHealthChecks)
+    //      appRepo.currentVersion(appId).foreach {
+    //        _.foreach(taskQueue.rateLimiter.addDelay)
+    //      }
     status.getState match {
       case TASK_ERROR | TASK_FAILED | TASK_FINISHED | TASK_KILLED | TASK_LOST =>
         // Remove from our internal list
@@ -129,9 +133,10 @@ class MarathonScheduler @Inject() (
       case TASK_RUNNING if !maybeTask.exists(_.hasStartedAt) => // staged, not running
         taskTracker.running(appId, status).onComplete {
           case Success(task) =>
-            appRepo.app(appId, Timestamp(task.getVersion)).onSuccess {
-              case maybeApp: Option[AppDefinition] => maybeApp.foreach(taskQueue.rateLimiter.resetDelay)
-            }
+            // FIXME(PK): Incldue that in new
+            //            appRepo.app(appId, Timestamp(task.getVersion)).onSuccess {
+            //              case maybeApp: Option[AppDefinition] => maybeApp.foreach(taskQueue.rateLimiter.resetDelay)
+            //            }
             postEvent(status, task)
 
           case Failure(t) =>
